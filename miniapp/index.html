@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>FlyVPN Mini App</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./assets/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <div class="hero-glow hero-glow-a"></div>
+    <div class="hero-glow hero-glow-b"></div>
+
+    <header class="hero">
+      <div class="eyebrow">FLYVPN MINI APP</div>
+      <h1>Быстрый VPN внутри Telegram</h1>
+      <p class="hero-copy">
+        Выберите сценарий, страну подключения и получите доступ без переходов в другие сервисы.
+      </p>
+      <div class="hero-stats">
+        <div class="stat-card">
+          <span class="stat-label">Оплата</span>
+          <strong>Telegram Stars</strong>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Формат</span>
+          <strong>Готовая ссылка Happ</strong>
+        </div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel panel-main">
+        <div class="panel-head">
+          <div>
+            <div class="panel-kicker">Шаг 1</div>
+            <h2>Выберите цель</h2>
+          </div>
+          <span class="panel-badge" id="priceBadge">150 Stars</span>
+        </div>
+
+        <div class="goal-grid" id="goalGrid"></div>
+
+        <div class="panel-head country-head">
+          <div>
+            <div class="panel-kicker">Шаг 2</div>
+            <h2>Выберите страну</h2>
+          </div>
+        </div>
+
+        <div class="country-grid" id="countryGrid"></div>
+      </section>
+
+      <aside class="panel panel-side">
+        <div class="panel-kicker">Ваш выбор</div>
+        <h2 id="summaryTitle">YouTube (4K без лагов)</h2>
+        <p class="summary-text" id="summaryDescription">
+          Стабильный маршрут для просмотра видео, стримов и контента в хорошем качестве.
+        </p>
+
+        <div class="summary-list">
+          <div class="summary-row">
+            <span>Страна</span>
+            <strong id="summaryCountry">Германия</strong>
+          </div>
+          <div class="summary-row">
+            <span>Оплата</span>
+            <strong>Stars</strong>
+          </div>
+          <div class="summary-row">
+            <span>Подключение</span>
+            <strong>Happ link</strong>
+          </div>
+        </div>
+
+        <button class="primary-button" id="buyButton">Купить доступ</button>
+
+        <div class="mini-note">
+          После оплаты бот автоматически пришлет ссылку для Happ в этот же чат.
+        </div>
+      </aside>
+    </main>
+
+    <section class="features">
+      <article class="feature-card">
+        <div class="feature-index">01</div>
+        <h3>Мгновенная выдача</h3>
+        <p>После оплаты бот сразу отправляет готовую ссылку для импорта в Happ.</p>
+      </article>
+      <article class="feature-card">
+        <div class="feature-index">02</div>
+        <h3>Подбор нагрузки</h3>
+        <p>Прокси выдаются из наименее продаваемых, чтобы распределять трафик аккуратнее.</p>
+      </article>
+      <article class="feature-card">
+        <div class="feature-index">03</div>
+        <h3>Один интерфейс</h3>
+        <p>Выбор тарифа, оплата и получение доступа происходят прямо внутри Telegram.</p>
+      </article>
+    </section>
+  </div>
+
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="./assets/app.js"></script>
+</body>
+</html>
