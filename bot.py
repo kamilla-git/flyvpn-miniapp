@@ -7,12 +7,14 @@ from datetime import datetime
 from urllib.parse import quote
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, F
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     CallbackQuery,
     KeyboardButton,
     LabeledPrice,
+    MenuButtonWebApp,
     Message,
     PreCheckoutQuery,
     WebAppInfo,
@@ -23,13 +25,14 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 BOT_TOKEN = os.getenv("BOT_TOKEN", "ВАШ_ТОКЕН_ТУТ")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 PROXYLINE_API_KEY = os.getenv("PROXYLINE_API_KEY", "ВАШ_PROXYLINE_API_KEY")
+TELEGRAM_PROXY = os.getenv("TELEGRAM_PROXY", "")
 
 # Для Telegram Mini App нужен публичный HTTPS URL.
 # Сюда позже нужно подставить адрес, на котором будет лежать папка miniapp.
 WEB_APP_URL = os.getenv("WEB_APP_URL", "https://kamilla-git.github.io/flyvpn-miniapp/miniapp/")
 
 DB_NAME = "vpn_bot.db"
-PRICE_STARS = 150
+PRICE_STARS = 0
 
 GOALS = {
     "youtube": "YouTube (4K без лагов)",
@@ -201,23 +204,25 @@ def normalize_proxy_to_happ_link(raw_proxy: str, title: str | None = None):
     """Превращает строку SOCKS5-прокси в ссылку формата socks:// для Happ."""
     proxy = raw_proxy.strip()
 
-    if proxy.startswith("socks://") or proxy.startswith("ss://"):
+    if proxy.startswith("socks5://") or proxy.startswith("ss://"):
         link = proxy
+    elif proxy.startswith("socks://"):
+        link = "socks5://" + proxy.removeprefix("socks://")
     elif "@" in proxy:
         creds, host_port = proxy.split("@", maxsplit=1)
         if ":" not in creds or ":" not in host_port:
             return None
         username, password = creds.split(":", maxsplit=1)
         host, port = host_port.rsplit(":", maxsplit=1)
-        link = f"socks://{quote(username, safe='')}:{quote(password, safe='')}@{host}:{port}"
+        link = f"socks5://{quote(username, safe='')}:{quote(password, safe='')}@{host}:{port}"
     else:
         parts = proxy.split(":")
         if len(parts) == 4:
             host, port, username, password = parts
-            link = f"socks://{quote(username, safe='')}:{quote(password, safe='')}@{host}:{port}"
+            link = f"socks5://{quote(username, safe='')}:{quote(password, safe='')}@{host}:{port}"
         elif len(parts) == 2:
             host, port = parts
-            link = f"socks://{host}:{port}"
+            link = f"socks5://{host}:{port}"
         else:
             return None
 
@@ -533,6 +538,13 @@ def get_main_menu():
     return builder.as_markup(resize_keyboard=True, input_field_placeholder="Выберите действие...")
 
 
+def get_web_app_inline_keyboard():
+    """Создает inline-кнопку для прямого открытия Telegram Mini App."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✨ Открыть Mini App", web_app=WebAppInfo(url=WEB_APP_URL))
+    return builder.as_markup()
+
+
 def get_goal_keyboard():
     """Создает inline-клавиатуру с тремя сценариями использования VPN."""
     builder = InlineKeyboardBuilder()
@@ -573,11 +585,38 @@ async def send_stars_invoice(bot: Bot, chat_id: int, user_id: int, goal_key: str
     )
 
 
+async def issue_access(message: Message, user_id: int, goal_key: str, country: str):
+    """Выдает доступ без оплаты для тестового режима."""
+    access_key = take_best_proxy(goal_key, country)
+    if not access_key:
+        await message.answer(
+            "Для выбранной страны сейчас нет доступных прокси.\n"
+            "Добавьте рабочий прокси через /addproxy и попробуйте снова.",
+            reply_markup=get_main_menu(),
+        )
+        return
+
+    create_subscription(user_id, goal_key, country, access_key)
+    await message.answer(
+        "✅ Тестовый доступ выдан бесплатно\n\n"
+        f"Тариф: {GOALS[goal_key]}\n"
+        f"Страна: {country}\n\n"
+        "Ссылка для Happ:\n"
+        f"`{access_key}`",
+        reply_markup=get_main_menu(),
+        parse_mode="Markdown",
+    )
+
+
 async def show_main_menu(target: Message):
     """Отправляет приветствие и объясняет, что бот умеет открывать Mini App."""
     await target.answer(
         "✨ Добро пожаловать в VPN-бота\n\n"
         "Можно пользоваться обычными кнопками или открыть красивое встроенное приложение внутри Telegram.",
+        reply_markup=get_web_app_inline_keyboard(),
+    )
+    await target.answer(
+        "Меню бота обновлено. Если Mini App не открывается с нижней кнопки, нажмите кнопку в сообщении выше.",
         reply_markup=get_main_menu(),
     )
 
@@ -661,6 +700,11 @@ async def goal_callback_handler(callback: CallbackQuery):
 async def country_callback_handler(callback: CallbackQuery, bot: Bot):
     """После выбора страны отправляет счет в Stars через обычный чат-интерфейс."""
     _, goal_key, country = callback.data.split(":", maxsplit=2)
+    if PRICE_STARS <= 0:
+        await issue_access(callback.message, callback.from_user.id, goal_key, country)
+        await callback.answer("Тестовый доступ выдан бесплатно")
+        return
+
     await callback.message.answer(
         "💫 Сейчас откроется счет на оплату в Telegram Stars.\n"
         f"Тариф: {GOALS[goal_key]}\n"
@@ -701,8 +745,13 @@ async def web_app_data_handler(message: Message, bot: Bot):
         "✨ Заказ из Mini App принят.\n"
         f"Тариф: {GOALS[goal_key]}\n"
         f"Страна: {country}\n"
-        "Открываю оплату в Telegram Stars..."
+        + 
+        ("Выдаю тестовый доступ бесплатно..." if PRICE_STARS <= 0 else "Открываю оплату в Telegram Stars...")
     )
+    if PRICE_STARS <= 0:
+        await issue_access(message, message.from_user.id, goal_key, country)
+        return
+
     await send_stars_invoice(bot, message.chat.id, message.from_user.id, goal_key, country)
 
 
@@ -834,7 +883,8 @@ async def main():
 
     init_db()
 
-    bot = Bot(token=BOT_TOKEN)
+    session = AiohttpSession(proxy=TELEGRAM_PROXY) if TELEGRAM_PROXY else AiohttpSession()
+    bot = Bot(token=BOT_TOKEN, session=session)
     dp = Dispatcher()
     dp.message.middleware(MessageDedupMiddleware())
 
@@ -856,9 +906,18 @@ async def main():
     dp.pre_checkout_query.register(pre_checkout_handler)
     dp.message.register(unknown_message_handler)
 
-    await bot.delete_webhook(drop_pending_updates=True)
-    print("Бот запущен и ожидает сообщения...")
-    await dp.start_polling(bot)
+    try:
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(text="Открыть VPN", web_app=WebAppInfo(url=WEB_APP_URL))
+        )
+        await bot.delete_webhook(drop_pending_updates=True)
+        print("Бот запущен и ожидает сообщения...")
+        await dp.start_polling(bot)
+    except TelegramNetworkError as error:
+        print(f"Не удалось подключиться к Telegram API: {error}")
+        print("Проверьте интернет/VPN/фаервол и доступность https://api.telegram.org.")
+    finally:
+        await bot.session.close()
 
 
 if __name__ == "__main__":
