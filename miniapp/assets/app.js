@@ -94,9 +94,11 @@ function buy() {
   };
 
   if (tg) {
+    buyButton.disabled = true;
+    buyButton.textContent = "Отправляю заказ...";
     tg.HapticFeedback?.impactOccurred("medium");
     tg.sendData(JSON.stringify(payload));
-    tg.close();
+    setTimeout(() => tg.close(), 900);
     return;
   }
 
