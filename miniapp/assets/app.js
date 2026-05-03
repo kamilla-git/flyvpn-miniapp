@@ -1,6 +1,6 @@
 const tg = window.Telegram?.WebApp;
 
-const priceStars = 150;
+const priceStars = 0;
 const goalMeta = {
   youtube: {
     title: "YouTube (4K без лагов)",
@@ -77,7 +77,7 @@ function renderSummary() {
   summaryTitle.textContent = goal.title;
   summaryDescription.textContent = goal.description;
   summaryCountry.textContent = state.country;
-  priceBadge.textContent = `${priceStars} Stars`;
+  priceBadge.textContent = priceStars > 0 ? `${priceStars} Stars` : "Бесплатно";
 }
 
 function render() {
