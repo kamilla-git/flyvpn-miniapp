@@ -6,7 +6,8 @@ import urllib.request
 from datetime import datetime
 from urllib.parse import quote
 
-from aiogram import Bot, Dispatcher, F
+from aiogram import BaseMiddleware, Bot, Dispatcher, F
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     CallbackQuery,
@@ -104,6 +105,15 @@ def init_db():
         """
     )
 
+    cur.execute("PRAGMA table_info(proxy_keys)")
+    proxy_key_columns = {row[1] for row in cur.fetchall()}
+    if "source" not in proxy_key_columns:
+        cur.execute("ALTER TABLE proxy_keys ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
+    if "usage_count" not in proxy_key_columns:
+        cur.execute("ALTER TABLE proxy_keys ADD COLUMN usage_count INTEGER NOT NULL DEFAULT 0")
+    if "added_at" not in proxy_key_columns:
+        cur.execute("ALTER TABLE proxy_keys ADD COLUMN added_at TEXT NOT NULL DEFAULT ''")
+
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS payments (
@@ -121,8 +131,50 @@ def init_db():
         """
     )
 
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS processed_messages (
+            chat_id INTEGER NOT NULL,
+            message_id INTEGER NOT NULL,
+            processed_at TEXT NOT NULL,
+            PRIMARY KEY (chat_id, message_id)
+        )
+        """
+    )
+
     conn.commit()
     conn.close()
+
+
+def mark_message_processed(message: Message):
+    """Возвращает True только для первого получения конкретного сообщения."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO processed_messages (chat_id, message_id, processed_at)
+            VALUES (?, ?, ?)
+            """,
+            (
+                message.chat.id,
+                message.message_id,
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            ),
+        )
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
+
+
+class MessageDedupMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        if isinstance(event, Message) and not mark_message_processed(event):
+            return None
+        return await handler(event, data)
 
 
 def save_user(message: Message):
@@ -595,10 +647,14 @@ async def open_app_placeholder_handler(message: Message):
 async def goal_callback_handler(callback: CallbackQuery):
     """После выбора цели показывает страны для ручного сценария внутри чата."""
     goal_key = callback.data.split(":")[1]
-    await callback.message.edit_text(
-        f"🌐 Цель: {GOALS[goal_key]}\n\nВыберите страну подключения:",
-        reply_markup=get_country_keyboard(goal_key),
-    )
+    try:
+        await callback.message.edit_text(
+            f"🌐 Цель: {GOALS[goal_key]}\n\nВыберите страну подключения:",
+            reply_markup=get_country_keyboard(goal_key),
+        )
+    except TelegramBadRequest as error:
+        if "message is not modified" not in str(error):
+            raise
     await callback.answer()
 
 
@@ -780,6 +836,7 @@ async def main():
 
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
+    dp.message.middleware(MessageDedupMiddleware())
 
     dp.message.register(start_handler, CommandStart())
     dp.message.register(add_proxy_handler, Command("addproxy"))
@@ -799,6 +856,7 @@ async def main():
     dp.pre_checkout_query.register(pre_checkout_handler)
     dp.message.register(unknown_message_handler)
 
+    await bot.delete_webhook(drop_pending_updates=True)
     print("Бот запущен и ожидает сообщения...")
     await dp.start_polling(bot)
 
